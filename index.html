@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 手势交互粒子系统</title>
+    <title>Three.js 手势交互蛋糕</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
-
+        
         /* UI 面板样式 */
         #ui-panel {
             position: absolute;
@@ -29,29 +29,6 @@
 
         .control-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 8px; font-size: 14px; color: #aaa; }
-
-        /* 按钮样式 */
-        .shape-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
-            color: white;
-            padding: 8px 12px;
-            margin: 4px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 12px;
-        }
-        .shape-btn:hover, .shape-btn.active { background: #00d2ff; color: #000; font-weight: bold; }
-
-        /* 颜色选择器 */
-        input[type="color"] {
-            width: 100%;
-            height: 40px;
-            border: none;
-            background: none;
-            cursor: pointer;
-        }
 
         /* 摄像头预览 (调试用，设为隐藏或小窗) */
         #video-preview {
@@ -84,7 +61,7 @@
             justify-content: center;
             z-index: 100;
         }
-
+        
         #loading {
             position: absolute;
             top: 50%; left: 50%;
@@ -110,34 +87,19 @@
 </head>
 <body>
 
-    <div id="loading">正在加载 AI 模型与摄像头...</div>
+    <div id="loading">正在加载 AI 模型、摄像头与蛋糕模型...</div>
     <video id="video-preview" playsinline></video>
 
     <div id="ui-panel">
-        <h2>✨ 粒子控制台</h2>
-
+        <h2>🍰 魔法蛋糕</h2>
+        
         <div class="control-group">
-            <label>切换模型</label>
-            <div id="shape-buttons">
-                <button class="shape-btn active" data-shape="heart">❤️ 爱心</button>
-                <button class="shape-btn" data-shape="saturn">🪐 土星</button>
-                <button class="shape-btn" data-shape="flower">🌸 花朵</button>
-                <button class="shape-btn" data-shape="torus">🧘 抽象(佛)</button>
-                <button class="shape-btn" data-shape="fireworks">🎆 烟花</button>
-            </div>
-        </div>
-
-        <div class="control-group">
-            <label>粒子颜色</label>
-            <input type="color" id="color-picker" value="#ff0055">
-        </div>
-
-        <div class="control-group">
-            <label>状态监控</label>
+            <label>手势控制</label>
             <div style="font-size: 12px; color: #888;">
-                手势张开度: <span id="hand-val" style="color:#00d2ff">未检测</span>
+                手掌张开度: <span id="hand-val" style="color:#00d2ff">未检测</span>
             </div>
         </div>
+        <p style="font-size:12px;color:#aaa;">*张开手掌：蛋糕放大并旋转；握紧：蛋糕缩小。</p>
     </div>
 
     <button id="fullscreen-btn">⛶</button>
@@ -145,200 +107,98 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // 引入 GLTFLoader
 
         // --- 全局变量 ---
-        const PARTICLE_COUNT = 15000;
-        const PARTICLE_SIZE = 0.08;
-        let scene, camera, renderer, particles, geometry, material;
-        let currentPositions = []; // 当前粒子位置
-        let targetPositions = [];  // 目标形状位置
-        let originalPositions = []; // 基础目标位置（不含缩放）
-
-        // 交互状态
-        let currentShape = 'heart';
+        let scene, camera, renderer, cakeModel;
         let handExpansion = 1.0; // 手势控制的缩放系数 (1.0 = 正常)
         let isHandsDetected = false;
-        let time = 0;
+        
+        // 蛋糕模型的默认尺寸和位置，可能需要根据模型调整
+        const DEFAULT_SCALE = 0.5; // 蛋糕的初始缩放比例
+        const ROTATION_SPEED = 0.05; // 基础旋转速度
 
         // --- 1. Three.js 初始化 ---
         function initThree() {
             const container = document.body;
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x000000, 0.02);
+            scene.background = new THREE.Color(0x111111); // 深色背景
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 8;
+            camera.position.set(0, 2, 5); // 调整相机位置，以便更好地看到蛋糕
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.outputColorSpace = THREE.SRGBColorSpace; // 确保颜色正确
             container.appendChild(renderer.domElement);
 
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
+            controls.target.set(0, 0.8, 0); // 调整控制器的焦点，让其指向蛋糕中心
 
-            // 初始化粒子系统
-            geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(PARTICLE_COUNT * 3);
+            // 添加环境光和方向光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // 柔和的环境光
+            scene.add(ambientLight);
 
-            // 初始随机位置
-            for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
-                positions[i] = (Math.random() - 0.5) * 20;
-            }
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5); // 主方向光
+            directionalLight.position.set(5, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-            // 材质
-            const textureLoader = new THREE.TextureLoader();
-            // 使用简单的圆形纹理
-            const sprite = textureLoader.load('https://threejs.org/examples/textures/sprites/disc.png');
-
-            material = new THREE.PointsMaterial({
-                color: 0xff0055,
-                size: PARTICLE_SIZE,
-                map: sprite,
-                transparent: true,
-                opacity: 0.8,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
-
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
-
-            // 初始化形状
-            generateShape('heart');
+            // 加载蛋糕模型
+            loadCakeModel();
 
             window.addEventListener('resize', onWindowResize);
             animate();
         }
 
-        // --- 2. 形状生成算法 (数学公式) ---
-        function getPointOnHeart(t) {
-            // 参数 t: 0 -> 2PI
-            // 爱心参数方程
-            const x = 16 * Math.pow(Math.sin(t), 3);
-            const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-            return new THREE.Vector3(x * 0.2, y * 0.2, 0);
-        }
+        // --- 2. 加载 3D 模型 ---
+        function loadCakeModel() {
+            const loader = new GLTFLoader();
+            // 使用一个免费的在线蛋糕模型作为示例
+            const CAKE_MODEL_URL = 'https://threejs.org/examples/models/gltf/Cake.glb'; 
 
-        function generateShape(type) {
-            originalPositions = [];
-            targetPositions = [];
-            const tempVec = new THREE.Vector3();
-
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                let x, y, z;
-
-                if (type === 'heart') {
-                    // 爱心：填充体积
-                    const t = Math.random() * Math.PI * 2;
-                    const r = Math.sqrt(Math.random()); // 均匀分布
-                    const p = getPointOnHeart(t);
-                    x = p.x * r + (Math.random() - 0.5) * 0.5;
-                    y = p.y * r + (Math.random() - 0.5) * 0.5;
-                    z = (Math.random() - 0.5) * 2 * r; // 厚度
+            loader.load(
+                CAKE_MODEL_URL,
+                function (gltf) {
+                    cakeModel = gltf.scene;
+                    cakeModel.scale.set(DEFAULT_SCALE, DEFAULT_SCALE, DEFAULT_SCALE);
+                    cakeModel.position.set(0, -0.5, 0); // 调整位置使其在地面上
+                    scene.add(cakeModel);
+                    console.log('蛋糕模型加载成功！', cakeModel);
+                    loadingUI.style.display = 'none'; // 隐藏加载提示
+                },
+                function (xhr) {
+                    // 打印加载进度
+                    loadingUI.innerText = `加载中... ${Math.round(xhr.loaded / xhr.total * 100)}%`;
+                    console.log(`蛋糕加载进度: ${xhr.loaded / xhr.total * 100}%`);
+                },
+                function (error) {
+                    console.error('加载蛋糕模型时发生错误', error);
+                    loadingUI.innerText = '加载蛋糕模型失败！';
                 }
-                else if (type === 'saturn') {
-                    // 土星：球体 + 环
-                    if (i < PARTICLE_COUNT * 0.3) {
-                        // 星球主体
-                        const r = 2;
-                        const theta = Math.random() * Math.PI * 2;
-                        const phi = Math.acos(2 * Math.random() - 1);
-                        x = r * Math.sin(phi) * Math.cos(theta);
-                        y = r * Math.sin(phi) * Math.sin(theta);
-                        z = r * Math.cos(phi);
-                    } else {
-                        // 星环
-                        const angle = Math.random() * Math.PI * 2;
-                        const dist = 3 + Math.random() * 2.5;
-                        x = Math.cos(angle) * dist;
-                        y = (Math.random() - 0.5) * 0.2;
-                        z = Math.sin(angle) * dist;
-                        // 倾斜环
-                        const tilt = Math.PI / 6;
-                        const y_new = y * Math.cos(tilt) - z * Math.sin(tilt);
-                        const z_new = y * Math.sin(tilt) + z * Math.cos(tilt);
-                        y = y_new; z = z_new;
-                    }
-                }
-                else if (type === 'flower') {
-                    // 3D 玫瑰线/花朵
-                    const u = Math.random() * Math.PI * 2; // 角度
-                    const v = Math.random() * Math.PI;
-                    const r = 3 * Math.sin(4 * u); // 4瓣
-                    x = r * Math.sin(v) * Math.cos(u);
-                    y = r * Math.sin(v) * Math.sin(u);
-                    z = r * Math.cos(v) * 0.5;
-                }
-                else if (type === 'torus') {
-                    // 扭结/抽象佛像概念
-                    const u = Math.random() * Math.PI * 2 * 3; // 长度
-                    const v = Math.random() * Math.PI * 2; // 管道圆周
-                    const R = 3; const r = 0.8;
-                    // 三叶结参数方程
-                    x = Math.sin(u) + 2 * Math.sin(2 * u);
-                    y = Math.cos(u) - 2 * Math.cos(2 * u);
-                    z = -Math.sin(3 * u);
-                    x *= 0.8; y *= 0.8; z *= 0.8;
-                }
-                else if (type === 'fireworks') {
-                    // 球形爆炸
-                    const r = 5 * Math.cbrt(Math.random());
-                    const theta = Math.random() * Math.PI * 2;
-                    const phi = Math.acos(2 * Math.random() - 1);
-                    x = r * Math.sin(phi) * Math.cos(theta);
-                    y = r * Math.sin(phi) * Math.sin(theta);
-                    z = r * Math.cos(phi);
-                }
-
-                originalPositions.push(new THREE.Vector3(x, y, z));
-            }
+            );
         }
 
         // --- 3. 动画循环 ---
         function animate() {
             requestAnimationFrame(animate);
-            time += 0.01;
 
-            const positions = geometry.attributes.position.array;
+            if (cakeModel) {
+                // 根据手势控制缩放
+                const targetScale = isHandsDetected ? (DEFAULT_SCALE * handExpansion * 1.5) : DEFAULT_SCALE; // 基础缩放 + 手势影响
+                cakeModel.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
 
-            // 核心逻辑：粒子向目标位置移动（包含手势缩放）
-            // 如果检测到手，targetScale 基于手势；否则为 1
-            const targetScale = isHandsDetected ? handExpansion : (1.0 + Math.sin(time) * 0.05);
-
-            // 烟花特效需要特殊的旋转
-            if (currentShape === 'fireworks') {
-                particles.rotation.y += 0.005;
-            } else {
-                particles.rotation.y += 0.001;
-            }
-
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const target = originalPositions[i];
-                if (!target) continue;
-
-                // 目标位置 = 原始形状 * 手势缩放
-                const tx = target.x * targetScale;
-                const ty = target.y * targetScale;
-                const tz = target.z * targetScale;
-
-                // 简单的 Lerp 插值动画
-                const idx = i * 3;
-                positions[idx] += (tx - positions[idx]) * 0.08;     // X
-                positions[idx + 1] += (ty - positions[idx + 1]) * 0.08; // Y
-                positions[idx + 2] += (tz - positions[idx + 2]) * 0.08; // Z
-
-                // 添加轻微的噪点抖动，让粒子看起来是活的
-                if (currentShape === 'fireworks') {
-                     // 烟花闪烁
-                     positions[idx] += (Math.random() - 0.5) * 0.05;
+                // 根据手势控制旋转
+                if (isHandsDetected && handExpansion > 1.0) { // 手张开时加速旋转
+                    cakeModel.rotation.y += ROTATION_SPEED * (handExpansion - 0.8);
+                } else { // 否则缓慢旋转
+                    cakeModel.rotation.y += ROTATION_SPEED * 0.1;
                 }
             }
 
-            geometry.attributes.position.needsUpdate = true;
             renderer.render(scene, camera);
         }
 
@@ -354,41 +214,36 @@
         const loadingUI = document.getElementById('loading');
 
         function onResults(results) {
-            loadingUI.style.display = 'none'; // 隐藏加载提示
-
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 isHandsDetected = true;
                 const landmarks = results.multiHandLandmarks[0];
-
-                // 计算大拇指(4)和食指(8)指尖的距离，或者计算手掌张开的幅度
-                // 这里我们计算大拇指尖(4)和小指尖(20)的距离来判断"张开/合拢"
+                
+                // 计算大拇指(4)和小指尖(20)的距离来判断"张开/合拢"
                 const thumbTip = landmarks[4];
                 const pinkyTip = landmarks[20];
-                const wrist = landmarks[0];
 
-                // 简单的欧几里得距离 (2D投影)
                 const distance = Math.sqrt(
-                    Math.pow(thumbTip.x - pinkyTip.x, 2) +
+                    Math.pow(thumbTip.x - pinkyTip.x, 2) + 
                     Math.pow(thumbTip.y - pinkyTip.y, 2)
                 );
 
-                // 映射距离到缩放系数
+                // 将距离映射到缩放系数
                 // distance 通常在 0.1 (拳头) 到 0.5 (张开) 之间
-                // 我们将其映射到 0.2 到 2.5
-                let factor = (distance - 0.1) * 6;
-                if (factor < 0.2) factor = 0.2; // 最小缩放
-                if (factor > 3.0) factor = 3.0; // 最大缩放
+                // 我们将其映射到 0.8 到 1.5 的范围，以便在 DEFAULT_SCALE 基础上变化
+                let factor = (distance - 0.1) * 1.5 + 0.8; 
+                if (factor < 0.8) factor = 0.8; 
+                if (factor > 1.5) factor = 1.5; 
 
                 // 平滑过渡
                 handExpansion += (factor - handExpansion) * 0.1;
-
+                
                 handValUI.innerText = `检测中: ${(handExpansion).toFixed(2)}x`;
                 handValUI.style.color = '#00ff00';
             } else {
                 isHandsDetected = false;
                 handValUI.innerText = "未检测到手部";
                 handValUI.style.color = '#888';
-                // 未检测到时，慢慢恢复到 1.0
+                // 未检测到时，慢慢恢复到 1.0 (或默认状态)
                 handExpansion += (1.0 - handExpansion) * 0.05;
             }
         }
@@ -417,23 +272,6 @@
         cameraUtils.start();
 
         // --- 5. UI 事件绑定 ---
-        // 切换形状
-        document.querySelectorAll('.shape-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                // 移除激活状态
-                document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
-                e.target.classList.add('active');
-
-                currentShape = e.target.dataset.shape;
-                generateShape(currentShape);
-            });
-        });
-
-        // 颜色选择
-        document.getElementById('color-picker').addEventListener('input', (e) => {
-            material.color.set(e.target.value);
-        });
-
         // 全屏控制
         document.getElementById('fullscreen-btn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
