@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 手势交互程序化蛋糕</title>
+    <title>Three.js 手势交互程序化精致蛋糕 (3D 扩散)</title>
     <style>
+        /* --- 界面与样式 --- */
         body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
         
-        /* UI 面板样式 */
         #ui-panel {
             position: absolute;
             top: 20px;
@@ -22,15 +22,12 @@
             color: white;
             z-index: 100;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            transition: transform 0.3s ease;
         }
 
         h2 { margin: 0 0 15px 0; font-size: 18px; font-weight: 500; letter-spacing: 1px; }
-
         .control-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 8px; font-size: 14px; color: #aaa; }
 
-        /* 摄像头预览 (调试用，设为隐藏或小窗) */
         #video-preview {
             position: absolute;
             bottom: 20px;
@@ -38,12 +35,10 @@
             width: 160px;
             border-radius: 10px;
             opacity: 0.5;
-            transform: scaleX(-1); 
+            transform: scaleX(-1); /* 镜像 */
             z-index: 90;
             pointer-events: none;
         }
-
-        /* 全屏按钮 */
         #fullscreen-btn {
             position: absolute;
             bottom: 20px;
@@ -61,7 +56,6 @@
             justify-content: center;
             z-index: 100;
         }
-        
         #loading {
             position: absolute;
             top: 50%; left: 50%;
@@ -91,15 +85,14 @@
     <video id="video-preview" playsinline></video>
 
     <div id="ui-panel">
-        <h2>🍰 程序化魔法蛋糕</h2>
-        
+        <h2>🍰 程序化精致蛋糕</h2>
         <div class="control-group">
             <label>手势控制</label>
             <div style="font-size: 12px; color: #888;">
                 手掌张开度: <span id="hand-val" style="color:#00d2ff">未检测</span>
             </div>
         </div>
-        <p style="font-size:12px;color:#aaa;">*张开手掌：蛋糕放大并旋转；握紧：蛋糕缩小。</p>
+        <p style="font-size:12px;color:#aaa;">*张开手掌：蛋糕整体放大并**3D 扩散**；握紧：收缩复原。</p>
     </div>
 
     <button id="fullscreen-btn">⛶</button>
@@ -109,18 +102,18 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // --- 全局变量 ---
-        let scene, camera, renderer, cakeModel; // cakeModel 现在是 THREE.Group
-        let handExpansion = 1.0; // 手势控制的缩放系数
+        let scene, camera, renderer, cakeModel; 
+        let handExpansion = 1.0; 
         let isHandsDetected = false;
         
-        const DEFAULT_SCALE = 0.8; // 蛋糕的初始缩放比例
-        const ROTATION_SPEED = 0.05; // 基础旋转速度
+        const DEFAULT_SCALE = 0.8; 
+        const ROTATION_SPEED = 0.05;
 
         // --- 1. Three.js 初始化 ---
         function initThree() {
             const container = document.body;
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111);
+            scene.background = new THREE.Color(0x0a0a1a);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(3, 3, 5); 
@@ -134,81 +127,147 @@
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.target.set(0, 1.5, 0); // 指向蛋糕的中心高度
+            controls.target.set(0, 1.5, 0); 
 
             // --- 灯光设置 ---
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
             directionalLight.position.set(5, 10, 5);
             scene.add(directionalLight);
+            
+            const fillLight = new THREE.DirectionalLight(0xeeeeff, 1.0);
+            fillLight.position.set(-5, 5, -5);
+            scene.add(fillLight);
 
-            // 程序化生成蛋糕并添加到场景
             createProceduralCake();
 
             window.addEventListener('resize', onWindowResize);
             animate();
         }
         
-        // --- 2. 程序化生成 3D 蛋糕 ---
+        // --- 2. 程序化生成精致 3D 蛋糕 (包含扩散数据存储) ---
         function createProceduralCake() {
-            cakeModel = new THREE.Group(); // 使用 Group 容纳所有蛋糕层
-            let currentHeight = 0; // 跟踪当前堆叠的高度
+            cakeModel = new THREE.Group(); 
+            let currentHeight = 0; 
 
-            // 定义蛋糕层：[半径, 高度, 颜色]
+            // 定义蛋糕层：[半径, 高度, 颜色, 奶油边颜色]
             const layers = [
-                { r: 1.5, h: 0.8, color: 0x42a5f5 }, // 蓝 (底层)
-                { r: 1.2, h: 0.8, color: 0xe91e63 }, // 粉 (中层)
-                { r: 0.9, h: 0.8, color: 0xffeb3b }, // 黄 (顶层)
+                { r: 1.5, h: 0.8, color: 0xffa07a, icingColor: 0xffffff }, // 珊瑚色 (底层)
+                { r: 1.2, h: 0.8, color: 0x98fb98, icingColor: 0xf5f5f5 }, // 浅绿 (中层)
+                { r: 0.9, h: 0.8, color: 0xadd8e6, icingColor: 0xffffff }, // 浅蓝 (顶层)
             ];
 
+            const baseMaterialOptions = {
+                metalness: 0.1,
+                roughness: 0.3,
+                specular: 0xffffff,
+                shininess: 100
+            };
+            
+            const frostingGeometry = new THREE.TorusGeometry(1, 0.1, 16, 100);
+
             layers.forEach(layer => {
-                const geometry = new THREE.CylinderGeometry(layer.r, layer.r, layer.h, 32);
-                const material = new THREE.MeshStandardMaterial({ 
-                    color: layer.color,
-                    metalness: 0.1, // 使其看起来像奶油或糖衣
-                    roughness: 0.5 
+                // --- 蛋糕体 ---
+                const cakeGeometry = new THREE.CylinderGeometry(layer.r, layer.r, layer.h, 32);
+                const cakeMaterial = new THREE.MeshStandardMaterial({ color: layer.color, ...baseMaterialOptions });
+                const cakeMesh = new THREE.Mesh(cakeGeometry, cakeMaterial);
+                cakeMesh.position.y = currentHeight + layer.h / 2;
+                
+                // 存储扩散数据 (蛋糕体)
+                cakeMesh.userData.originalPos = cakeMesh.position.clone();
+                cakeMesh.userData.direction = cakeMesh.position.clone().normalize();
+                cakeModel.add(cakeMesh);
+
+                // --- 奶油边缘 ---
+                const icingMaterial = new THREE.MeshStandardMaterial({
+                    color: layer.icingColor, metalness: 0.2, roughness: 0.1 
                 });
-                const mesh = new THREE.Mesh(geometry, material);
+                const icingMesh = new THREE.Mesh(frostingGeometry, icingMaterial);
+                
+                icingMesh.rotation.x = Math.PI / 2;
+                icingMesh.scale.set(layer.r / 1.0, layer.r / 1.0, 1.0);
+                icingMesh.position.y = currentHeight + layer.h * 0.9;
+                
+                // 存储扩散数据 (奶油边)
+                icingMesh.userData.originalPos = icingMesh.position.clone();
+                icingMesh.userData.direction = icingMesh.position.clone().normalize();
+                cakeModel.add(icingMesh);
 
-                // 计算当前层中心位置
-                mesh.position.y = currentHeight + layer.h / 2;
-                currentHeight += layer.h; // 更新高度
-
-                cakeModel.add(mesh);
+                currentHeight += layer.h;
             });
             
+            // --- 装饰：彩虹糖屑 (Sprinkles) ---
+            const SPRINKLE_COUNT = 300;
+            const sprinkleColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff];
+            const maxRadius = layers[layers.length - 1].r;
+
+            for(let i = 0; i < SPRINKLE_COUNT; i++) {
+                const r = Math.random() * maxRadius * 0.9;
+                const angle = Math.random() * Math.PI * 2;
+                const x = r * Math.cos(angle);
+                const z = r * Math.sin(angle);
+                const y = currentHeight + 0.1;
+                
+                const sprinkleGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+                const sprinkleMaterial = new THREE.MeshStandardMaterial({ 
+                    color: sprinkleColors[i % sprinkleColors.length], roughness: 0.1 
+                });
+                const sprinkle = new THREE.Mesh(sprinkleGeometry, sprinkleMaterial);
+                sprinkle.position.set(x, y, z);
+                
+                // 存储扩散数据 (糖屑)
+                sprinkle.userData.originalPos = sprinkle.position.clone();
+                sprinkle.userData.direction = sprinkle.position.clone().normalize();
+                cakeModel.add(sprinkle);
+            }
+
             // --- 装饰：顶部的樱桃 ---
-            const cherryGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const cherryGeometry = new THREE.SphereGeometry(0.2, 16, 16);
             const cherryMaterial = new THREE.MeshStandardMaterial({ 
-                color: 0xf44336, // 红色
-                metalness: 0.5,
-                roughness: 0.2
+                color: 0xc62828, metalness: 0.5, roughness: 0.2
             });
             const cherry = new THREE.Mesh(cherryGeometry, cherryMaterial);
-            cherry.position.set(0, currentHeight + 0.1, 0); // 放在蛋糕顶层上方
+            cherry.position.set(0, currentHeight + 0.3, 0); 
+            
+            // 樱桃只需要在 Y 轴上扩散
+            cherry.userData.originalPos = cherry.position.clone();
+            cherry.userData.direction = new THREE.Vector3(0, 1, 0); 
             cakeModel.add(cherry);
             
-            // 最终添加到场景并设置初始缩放
             cakeModel.scale.set(DEFAULT_SCALE, DEFAULT_SCALE, DEFAULT_SCALE);
             scene.add(cakeModel);
             
-            // 隐藏加载提示 (模型创建成功)
             loadingUI.style.display = 'none'; 
-            console.log('程序化蛋糕模型创建成功！');
         }
 
-        // --- 3. 动画循环 ---
+        // --- 3. 动画循环 (包含扩散逻辑) ---
         function animate() {
             requestAnimationFrame(animate);
 
             if (cakeModel) {
-                // 根据手势控制缩放
+                // 1. 计算手势缩放 (应用于整个 Group)
                 const targetScale = isHandsDetected ? (DEFAULT_SCALE * handExpansion * 1.5) : DEFAULT_SCALE;
                 cakeModel.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
 
-                // 根据手势控制旋转
+                // 2. 计算 3D 扩散/爆炸因子
+                // 只有当 handExpansion 超过 1.0 (正常状态) 时才开始扩散
+                const explosionFactor = Math.max(0, handExpansion - 1.0); 
+                const maxDistance = explosionFactor * 2.0; 
+
+                // 3. 遍历所有子对象，应用扩散效果
+                cakeModel.children.forEach(mesh => {
+                    if (mesh.userData.originalPos) {
+                        // 1. 重置到原始位置
+                        mesh.position.copy(mesh.userData.originalPos);
+                        
+                        // 2. 沿着预存的方向向量推动它
+                        mesh.position.addScaledVector(mesh.userData.direction, maxDistance);
+                    }
+                });
+                
+                // 4. 控制旋转
                 if (isHandsDetected && handExpansion > 1.0) {
                     cakeModel.rotation.y += ROTATION_SPEED * (handExpansion - 0.8);
                 } else {
@@ -229,14 +288,13 @@
         const videoElement = document.getElementById('video-preview');
         const handValUI = document.getElementById('hand-val');
         const loadingUI = document.getElementById('loading');
-        loadingUI.innerText = '正在加载 AI 模型与摄像头...'; // 更新加载信息
+        loadingUI.innerText = '正在加载 AI 模型与摄像头...';
 
         function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 isHandsDetected = true;
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // 计算大拇指(4)和小指尖(20)的距离
                 const thumbTip = landmarks[4];
                 const pinkyTip = landmarks[20];
 
@@ -245,12 +303,10 @@
                     Math.pow(thumbTip.y - pinkyTip.y, 2)
                 );
 
-                // 映射距离到缩放系数 (0.8 到 1.5 的手势影响范围)
                 let factor = (distance - 0.1) * 1.5 + 0.8; 
                 if (factor < 0.8) factor = 0.8; 
                 if (factor > 1.5) factor = 1.5; 
 
-                // 平滑过渡
                 handExpansion += (factor - handExpansion) * 0.1;
                 
                 handValUI.innerText = `检测中: ${(handExpansion).toFixed(2)}x`;
@@ -297,7 +353,6 @@
 
         // 启动 Three.js
         initThree();
-
     </script>
 </body>
 </html>
