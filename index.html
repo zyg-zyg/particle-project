@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 手势交互蛋糕</title>
+    <title>Three.js 手势交互程序化蛋糕</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', sans-serif; }
         canvas { display: block; }
@@ -38,7 +38,7 @@
             width: 160px;
             border-radius: 10px;
             opacity: 0.5;
-            transform: scaleX(-1); /* 镜像 */
+            transform: scaleX(-1); 
             z-index: 90;
             pointer-events: none;
         }
@@ -87,11 +87,11 @@
 </head>
 <body>
 
-    <div id="loading">正在加载 AI 模型、摄像头与蛋糕模型...</div>
+    <div id="loading">正在加载 AI 模型与摄像头...</div>
     <video id="video-preview" playsinline></video>
 
     <div id="ui-panel">
-        <h2>🍰 魔法蛋糕</h2>
+        <h2>🍰 程序化魔法蛋糕</h2>
         
         <div class="control-group">
             <label>手势控制</label>
@@ -107,79 +107,96 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // 引入 GLTFLoader
 
         // --- 全局变量 ---
-        let scene, camera, renderer, cakeModel;
-        let handExpansion = 1.0; // 手势控制的缩放系数 (1.0 = 正常)
+        let scene, camera, renderer, cakeModel; // cakeModel 现在是 THREE.Group
+        let handExpansion = 1.0; // 手势控制的缩放系数
         let isHandsDetected = false;
         
-        // 蛋糕模型的默认尺寸和位置，可能需要根据模型调整
-        const DEFAULT_SCALE = 0.5; // 蛋糕的初始缩放比例
+        const DEFAULT_SCALE = 0.8; // 蛋糕的初始缩放比例
         const ROTATION_SPEED = 0.05; // 基础旋转速度
 
         // --- 1. Three.js 初始化 ---
         function initThree() {
             const container = document.body;
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111); // 深色背景
+            scene.background = new THREE.Color(0x111111);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 2, 5); // 调整相机位置，以便更好地看到蛋糕
+            camera.position.set(3, 3, 5); 
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.outputColorSpace = THREE.SRGBColorSpace; // 确保颜色正确
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
             container.appendChild(renderer.domElement);
 
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.target.set(0, 0.8, 0); // 调整控制器的焦点，让其指向蛋糕中心
+            controls.target.set(0, 1.5, 0); // 指向蛋糕的中心高度
 
-            // 添加环境光和方向光
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // 柔和的环境光
+            // --- 灯光设置 ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5); // 主方向光
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
             directionalLight.position.set(5, 10, 5);
-            directionalLight.castShadow = true;
             scene.add(directionalLight);
 
-            // 加载蛋糕模型
-            loadCakeModel();
+            // 程序化生成蛋糕并添加到场景
+            createProceduralCake();
 
             window.addEventListener('resize', onWindowResize);
             animate();
         }
+        
+        // --- 2. 程序化生成 3D 蛋糕 ---
+        function createProceduralCake() {
+            cakeModel = new THREE.Group(); // 使用 Group 容纳所有蛋糕层
+            let currentHeight = 0; // 跟踪当前堆叠的高度
 
-        // --- 2. 加载 3D 模型 ---
-        function loadCakeModel() {
-            const loader = new GLTFLoader();
-            // 使用一个免费的在线蛋糕模型作为示例
-            const CAKE_MODEL_URL = 'https://threejs.org/examples/models/gltf/Cake.glb'; 
+            // 定义蛋糕层：[半径, 高度, 颜色]
+            const layers = [
+                { r: 1.5, h: 0.8, color: 0x42a5f5 }, // 蓝 (底层)
+                { r: 1.2, h: 0.8, color: 0xe91e63 }, // 粉 (中层)
+                { r: 0.9, h: 0.8, color: 0xffeb3b }, // 黄 (顶层)
+            ];
 
-            loader.load(
-                CAKE_MODEL_URL,
-                function (gltf) {
-                    cakeModel = gltf.scene;
-                    cakeModel.scale.set(DEFAULT_SCALE, DEFAULT_SCALE, DEFAULT_SCALE);
-                    cakeModel.position.set(0, -0.5, 0); // 调整位置使其在地面上
-                    scene.add(cakeModel);
-                    console.log('蛋糕模型加载成功！', cakeModel);
-                    loadingUI.style.display = 'none'; // 隐藏加载提示
-                },
-                function (xhr) {
-                    // 打印加载进度
-                    loadingUI.innerText = `加载中... ${Math.round(xhr.loaded / xhr.total * 100)}%`;
-                    console.log(`蛋糕加载进度: ${xhr.loaded / xhr.total * 100}%`);
-                },
-                function (error) {
-                    console.error('加载蛋糕模型时发生错误', error);
-                    loadingUI.innerText = '加载蛋糕模型失败！';
-                }
-            );
+            layers.forEach(layer => {
+                const geometry = new THREE.CylinderGeometry(layer.r, layer.r, layer.h, 32);
+                const material = new THREE.MeshStandardMaterial({ 
+                    color: layer.color,
+                    metalness: 0.1, // 使其看起来像奶油或糖衣
+                    roughness: 0.5 
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+
+                // 计算当前层中心位置
+                mesh.position.y = currentHeight + layer.h / 2;
+                currentHeight += layer.h; // 更新高度
+
+                cakeModel.add(mesh);
+            });
+            
+            // --- 装饰：顶部的樱桃 ---
+            const cherryGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const cherryMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xf44336, // 红色
+                metalness: 0.5,
+                roughness: 0.2
+            });
+            const cherry = new THREE.Mesh(cherryGeometry, cherryMaterial);
+            cherry.position.set(0, currentHeight + 0.1, 0); // 放在蛋糕顶层上方
+            cakeModel.add(cherry);
+            
+            // 最终添加到场景并设置初始缩放
+            cakeModel.scale.set(DEFAULT_SCALE, DEFAULT_SCALE, DEFAULT_SCALE);
+            scene.add(cakeModel);
+            
+            // 隐藏加载提示 (模型创建成功)
+            loadingUI.style.display = 'none'; 
+            console.log('程序化蛋糕模型创建成功！');
         }
 
         // --- 3. 动画循环 ---
@@ -188,13 +205,13 @@
 
             if (cakeModel) {
                 // 根据手势控制缩放
-                const targetScale = isHandsDetected ? (DEFAULT_SCALE * handExpansion * 1.5) : DEFAULT_SCALE; // 基础缩放 + 手势影响
+                const targetScale = isHandsDetected ? (DEFAULT_SCALE * handExpansion * 1.5) : DEFAULT_SCALE;
                 cakeModel.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
 
                 // 根据手势控制旋转
-                if (isHandsDetected && handExpansion > 1.0) { // 手张开时加速旋转
+                if (isHandsDetected && handExpansion > 1.0) {
                     cakeModel.rotation.y += ROTATION_SPEED * (handExpansion - 0.8);
-                } else { // 否则缓慢旋转
+                } else {
                     cakeModel.rotation.y += ROTATION_SPEED * 0.1;
                 }
             }
@@ -212,13 +229,14 @@
         const videoElement = document.getElementById('video-preview');
         const handValUI = document.getElementById('hand-val');
         const loadingUI = document.getElementById('loading');
+        loadingUI.innerText = '正在加载 AI 模型与摄像头...'; // 更新加载信息
 
         function onResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 isHandsDetected = true;
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // 计算大拇指(4)和小指尖(20)的距离来判断"张开/合拢"
+                // 计算大拇指(4)和小指尖(20)的距离
                 const thumbTip = landmarks[4];
                 const pinkyTip = landmarks[20];
 
@@ -227,9 +245,7 @@
                     Math.pow(thumbTip.y - pinkyTip.y, 2)
                 );
 
-                // 将距离映射到缩放系数
-                // distance 通常在 0.1 (拳头) 到 0.5 (张开) 之间
-                // 我们将其映射到 0.8 到 1.5 的范围，以便在 DEFAULT_SCALE 基础上变化
+                // 映射距离到缩放系数 (0.8 到 1.5 的手势影响范围)
                 let factor = (distance - 0.1) * 1.5 + 0.8; 
                 if (factor < 0.8) factor = 0.8; 
                 if (factor > 1.5) factor = 1.5; 
@@ -243,7 +259,6 @@
                 isHandsDetected = false;
                 handValUI.innerText = "未检测到手部";
                 handValUI.style.color = '#888';
-                // 未检测到时，慢慢恢复到 1.0 (或默认状态)
                 handExpansion += (1.0 - handExpansion) * 0.05;
             }
         }
@@ -272,7 +287,6 @@
         cameraUtils.start();
 
         // --- 5. UI 事件绑定 ---
-        // 全屏控制
         document.getElementById('fullscreen-btn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen();
